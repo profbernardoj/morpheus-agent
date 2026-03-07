@@ -1,6 +1,6 @@
 ---
 name: prompt-guard
-version: 2.6.0
+version: 2.7.0
 description: Advanced prompt injection defense system for Clawdbot with HiveFence network integration. Protects against direct/indirect injection attacks in group chats with multi-language detection (EN/KO/JA/ZH), severity scoring, automatic logging, and configurable security policies. Connects to the distributed HiveFence threat intelligence network for collective defense.
 ---
 

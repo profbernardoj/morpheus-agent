@@ -16,7 +16,7 @@
  *   node bootstrap-client.mjs bootstrap --test-fingerprint=deadbeef01
  *
  * Environment:
- *   EVERCLAW_BOOTSTRAP_URL - API endpoint (default: https://api.everclaw.xyz/bootstrap)
+ *   EVERCLAW_BOOTSTRAP_URL - API endpoint (default: https://everclawkeyapi-ever-claw.vercel.app)
  *   TEST_FINGERPRINT - Override fingerprint for testing
  *   NODE_ENV=test - Use Base Sepolia instead of Base mainnet
  */
@@ -25,12 +25,22 @@ import crypto from 'crypto';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
-import { machineIdSync } from 'node-machine-id';
 import { privateKeyToAccount } from 'viem/accounts';
+import { execSync } from 'child_process';
+
+// node-machine-id is optional — fallback to OS-based fingerprint
+let machineIdSync;
+try {
+  const { createRequire } = await import('module');
+  const require = createRequire(import.meta.url);
+  machineIdSync = require('node-machine-id').machineIdSync;
+} catch {
+  machineIdSync = null;
+}
 
 const BOOTSTRAP_DIR = path.join(os.homedir(), '.everclaw');
 const STATE_FILE = path.join(BOOTSTRAP_DIR, 'bootstrap.json');
-const API_BASE = process.env.EVERCLAW_BOOTSTRAP_URL || 'https://api.everclaw.xyz/bootstrap';
+const API_BASE = process.env.EVERCLAW_BOOTSTRAP_URL || 'https://everclawkeyapi-ever-claw.vercel.app';
 
 // ─── Directory Setup ───────────────────────────────────────────────────────
 
@@ -52,7 +62,31 @@ function getFingerprint() {
   if (process.env.TEST_FINGERPRINT) {
     return process.env.TEST_FINGERPRINT;
   }
-  const machineId = machineIdSync();
+
+  let machineId;
+  // Try node-machine-id first
+  if (machineIdSync) {
+    try { machineId = machineIdSync(); } catch { /* fall through */ }
+  }
+  // Fallback: OS-specific machine ID
+  if (!machineId) {
+    try {
+      if (process.platform === 'darwin') {
+        machineId = execSync('ioreg -rd1 -c IOPlatformExpertDevice | grep IOPlatformUUID', {
+          encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000
+        }).trim();
+      } else if (fs.existsSync('/etc/machine-id')) {
+        machineId = fs.readFileSync('/etc/machine-id', 'utf-8').trim();
+      } else if (fs.existsSync('/var/lib/dbus/machine-id')) {
+        machineId = fs.readFileSync('/var/lib/dbus/machine-id', 'utf-8').trim();
+      }
+    } catch { /* fall through */ }
+  }
+  // Last resort: hostname + CPU info
+  if (!machineId) {
+    machineId = `${os.hostname()}:${os.cpus()[0]?.model || 'unknown'}:${os.cpus().length}`;
+  }
+
   return crypto.createHash('sha256')
     .update(`${machineId}:${process.platform}`)
     .digest('hex');
@@ -138,7 +172,7 @@ function getKeyFromKeychain() {
   // macOS Keychain
   if (platform === 'darwin') {
     try {
-      const result = require('child_process').execSync(
+      const result = execSync(
         `security find-generic-password -a "${KEYCHAIN_ACCOUNT}" -s "${KEYCHAIN_SERVICE}" -w`,
         { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8', timeout: 5000 }
       );
@@ -151,8 +185,8 @@ function getKeyFromKeychain() {
   // Linux libsecret
   if (platform === 'linux') {
     try {
-      require('child_process').execSync('which secret-tool', { stdio: 'pipe' });
-      const result = require('child_process').execSync(
+      execSync('which secret-tool', { stdio: 'pipe' });
+      const result = execSync(
         `secret-tool lookup service "${KEYCHAIN_SERVICE}" account "${KEYCHAIN_ACCOUNT}"`,
         { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8', timeout: 5000 }
       );
@@ -227,7 +261,7 @@ async function bootstrap() {
     // Request challenge (unsigned)
     const timestamp = Date.now();
     console.log('📡 Requesting challenge...');
-    const challengeRes = await fetch(`${API_BASE}/challenge`, {
+    const challengeRes = await fetch(`${API_BASE}/bootstrap/challenge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fingerprint, timestamp })
@@ -245,9 +279,10 @@ async function bootstrap() {
     const solution = await solvePoW(challenge);
     console.log('✅ PoW solved');
 
-    // Sign request
-    const { signature, wallet } = await signBootstrapRequest(privateKey, fingerprint, challenge);
-    console.log(`✍️ Signed by ${wallet}`);
+    // Derive wallet address
+    const account = privateKeyToAccount(privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`);
+    const wallet = account.address;
+    console.log(`✍️ Wallet: ${wallet}`);
 
     // Submit bootstrap request
     console.log('🚀 Submitting bootstrap request...');
@@ -258,9 +293,7 @@ async function bootstrap() {
         wallet,
         fingerprint,
         challengeNonce: challenge,
-        solution,
-        timestamp: BigInt(timestamp),
-        signature
+        solution
       })
     });
 

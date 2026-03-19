@@ -2,6 +2,11 @@
 
 All notable changes to EverClaw are documented here.
 
+## [2026.3.29] - 2026-03-19
+
+### Fixed
+- **Container crash on first run: "Refusing to bind gateway to lan without auth"** — Regression from v2026.3.28. The `gateway.auth.mode: "none"` we added to the default template caused the entrypoint to skip token injection (treated `"none"` as "user configured"). Gateway then refused to bind to LAN without auth. Fixed by: (1) removing `auth.mode: "none"` from default template, (2) treating `"none"` as equivalent to empty/unset in the entrypoint — always upgrades to `"token"` mode with auto-generated token.
+
 ## [2026.3.28] - 2026-03-19
 
 ### Fixed

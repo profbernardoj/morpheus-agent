@@ -108,9 +108,11 @@ else
   fi
 
   # Check if gateway.auth.mode is already explicitly configured
+  # Treat "none" the same as empty — gateway refuses to bind to LAN without auth,
+  # so we must upgrade to token mode. Only "token" and "password" are real auth modes.
   CURRENT_MODE=$(jq -r '.gateway.auth.mode // empty' "$CONFIG_FILE" 2>/dev/null)
 
-  if [ -z "$CURRENT_MODE" ]; then
+  if [ -z "$CURRENT_MODE" ] || [ "$CURRENT_MODE" = "none" ]; then
     # No auth mode set — inject full auth config + controlUi origins (safe merge)
     TMP_CONFIG=$(mktemp)
     if jq --arg token "$AUTH_TOKEN" --argjson dda "$DDA_VALUE" '

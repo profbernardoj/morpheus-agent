@@ -2,7 +2,7 @@
 
 All notable changes to EverClaw are documented here.
 
-## [2026.3.30] - 2026-03-19
+## [2026.3.31] - 2026-03-19
 
 ### Fixed
 - **Installer false-positive dependency reporting on macOS** — Non-admin accounts (family, corporate, school Macs) saw misleading `✓ installed` messages when Homebrew failed silently due to missing sudo access. Fix includes:
